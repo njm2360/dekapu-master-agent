@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Reflection;
 
 public class TrayAppContext : ApplicationContext
 {
@@ -13,9 +14,17 @@ public class TrayAppContext : ApplicationContext
 
         _exitItem = new ToolStripMenuItem("終了", null, (_, _) => ExitThread());
 
+        var asm = Assembly.GetExecutingAssembly();
+        using var stream =
+            asm.GetManifestResourceStream("dekapu_master_agent.icon.ico");
+
+        if (stream == null)
+            throw new InvalidOperationException("icon resource not found");
+
         _icon = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = new Icon(stream),
+            Text = "dekapu-master-agent",
             Visible = true,
             ContextMenuStrip = new ContextMenuStrip
             {
