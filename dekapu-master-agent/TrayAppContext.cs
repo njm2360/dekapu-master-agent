@@ -88,7 +88,10 @@ public class TrayAppContext : ApplicationContext
         if (options == null)
             return;
 
-        _launcherService.ConfirmAndLaunch(options);
+        Task.Run(() =>
+        {
+            _launcherService.ConfirmAndLaunch(options);
+        });
     }
 
 
