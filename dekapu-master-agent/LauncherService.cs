@@ -33,12 +33,13 @@ public class LauncherService
         string profileText =
             options.Profile.HasValue
                 ? options.Profile.Value.ToString()
-                : "未指定";
+                : "0";
 
         var result = MessageBox.Show(
             $"以下の内容で起動します。\n\n" +
             $"インスタンス: {instanceText}\n" +
-            $"プロファイル: {profileText}",
+            $"プロファイル: {profileText} \n" +
+            $"引数: {args}",
             "起動確認",
             MessageBoxButtons.OKCancel,
             MessageBoxIcon.Question
@@ -63,8 +64,6 @@ public class LauncherService
         // profile
         if (options.Profile.HasValue)
             sb.Append($"--profile={options.Profile.Value} ");
-        else
-            sb.Append("--profile=0 ");
 
         // instance
         if (options.Instance != null)
@@ -93,8 +92,11 @@ public class LauncherService
         if (!string.IsNullOrWhiteSpace(options.Affinity))
             sb.Append($"--affinity={options.Affinity} ");
 
-        if (!string.IsNullOrWhiteSpace(options.ProcessPriority))
-            sb.Append($"--process-priority={options.ProcessPriority} ");
+        if (options.ProcessPriority.HasValue)
+            sb.Append($"--process-priority={options.ProcessPriority.Value} ");
+
+        if (options.MainThreadPriority.HasValue)
+            sb.Append($"--main-thread-priority={options.MainThreadPriority.Value} ");
 
         // debug
         if (options.WatchAvatars)
@@ -114,21 +116,14 @@ public class LauncherService
 
         // extra args
         if (options.ExtraArgs != null)
-        {
-            foreach (var arg in options.ExtraArgs)
-                sb.Append(arg).Append(' ');
-        }
+            sb.Append(options.ExtraArgs).Append(' ');
 
         return sb.ToString().Trim();
     }
 
     private static string GetLaunchUrl(InstanceInfo instance)
     {
-        return
-            $"vrchat://launch?" +
-            $"ref=VRCQuickLauncher" +
-            $"&id={instance.Id}" +
-            $"&shortName={instance.ShortName}";
+        return $"vrchat://launch?id={instance.Id}";
     }
 
     private bool IsLauncherRunning()

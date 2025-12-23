@@ -12,7 +12,8 @@
 
     // Performance
     public string? Affinity { get; set; }
-    public string? ProcessPriority { get; set; }
+    public int? ProcessPriority { get; set; }
+    public int? MainThreadPriority { get; set; }
 
     // Debug
     public bool WatchWorlds { get; set; } = false;
@@ -22,5 +23,5 @@
     public bool UdonDebugLogging { get; set; } = false;
 
     // Extra
-    public string[]? ExtraArgs { get; set; }
+    public string? ExtraArgs { get; set; }
 }
