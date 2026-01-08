@@ -1,5 +1,5 @@
-﻿using System.Text.Json;
-using System.Reflection;
+﻿using System.Reflection;
+using System.Text.Json;
 
 public class TrayAppContext : ApplicationContext
 {
@@ -7,19 +7,20 @@ public class TrayAppContext : ApplicationContext
     private readonly ToolStripMenuItem _exitItem;
     private readonly ConnectionStatusForm _statusForm;
     private readonly LauncherService _launcherService;
+    private readonly WebSocketClient _ws;
+    private readonly string? _description;
 
     public TrayAppContext(AppConfig config)
     {
+        _description = config.Description;
         _launcherService = new LauncherService(config.VrcLauncherPath);
 
         _exitItem = new ToolStripMenuItem("終了", null, (_, _) => ExitThread());
 
         var asm = Assembly.GetExecutingAssembly();
         using var stream =
-            asm.GetManifestResourceStream("dekapu_master_agent.icon.ico");
-
-        if (stream == null)
-            throw new InvalidOperationException("icon resource not found");
+        asm.GetManifestResourceStream("dekapu_master_agent.icon.ico")
+        ?? throw new InvalidOperationException("icon resource not found");
 
         _icon = new NotifyIcon
         {
@@ -32,80 +33,82 @@ public class TrayAppContext : ApplicationContext
             }
         };
 
-        _icon.MouseClick += (_, e) =>
-        {
-            if (e.Button == MouseButtons.Left)
-            {
-                // Nothing todo
-            }
-        };
-
         _statusForm = new ConnectionStatusForm();
         _statusForm.Show();
 
-        var ws = new WebSocketClientService(
-            config.WebSocketUrl,
-            config.Description,
-            OnMessage,
-            OnConnected,
-            OnDisconnected
-        );
+        _ws = new WebSocketClient(config.WebSocketUrl);
+        _ws.StateChanged += OnStateChanged;
+        _ws.MessageReceived += OnMessage;
 
-        Task.Run(() => ws.StartAsync(UpdateStatus));
+        Task.Run(() => _ws.StartAsync());
     }
 
-    private void UpdateStatus(string text)
+    private void OnStateChanged(ConnectionState state, int? retry)
     {
-        _statusForm.UpdateStatus(text);
-    }
-
-    private void OnConnected()
-    {
-        if (_statusForm.InvokeRequired)
+        void Update()
         {
-            _statusForm.Invoke(() => _statusForm.Hide());
-        }
-        else
-        {
-            _statusForm.Hide();
-        }
-    }
-
-    private void OnDisconnected()
-    {
-        if (_statusForm.InvokeRequired)
-        {
-            _statusForm.Invoke(() =>
+            switch (state)
             {
-                if (!_statusForm.Visible)
-                    _statusForm.Show();
-            });
+                case ConnectionState.Connecting:
+                    _statusForm.UpdateStatus("接続中…");
+                    break;
+
+                case ConnectionState.Connected:
+                    _statusForm.Hide();
+                    SendAgentInfo();
+                    break;
+
+                case ConnectionState.Reconnecting:
+                    _statusForm.UpdateStatus(
+                    $"再接続待機中 ({retry}s)"
+                    );
+                    if (!_statusForm.Visible)
+                        _statusForm.Show();
+                    break;
+
+                case ConnectionState.Disconnected:
+                    if (!_statusForm.Visible)
+                        _statusForm.Show();
+                    break;
+            }
         }
+
+        if (_statusForm.InvokeRequired)
+            _statusForm.Invoke(Update);
         else
-        {
-            if (!_statusForm.Visible)
-                _statusForm.Show();
-        }
+            Update();
     }
 
-
-    private void OnMessage(string json)
+    private void OnMessage(string message)
     {
         var options =
-            JsonSerializer.Deserialize<LaunchOptions>(json, Json.Options);
+        JsonSerializer.Deserialize<LaunchOptions>(message, Json.Options);
 
         if (options == null)
             return;
 
         Task.Run(() =>
         {
-            _launcherService.ConfirmAndLaunch(options);
+            if (options.DirectLaunch || _launcherService.Confirm(options))
+            {
+                _launcherService.Launch(options);
+            }
         });
     }
 
+    private void SendAgentInfo()
+    {
+        var json = JsonSerializer.Serialize(
+        SystemInfo.GetReport(_description),
+        Json.Options
+        );
+
+        _ = _ws.SendAsync(json);
+    }
 
     protected override void Dispose(bool disposing)
     {
+        _ws.Stop();
         _icon.Visible = false;
         base.Dispose(disposing);
     }
