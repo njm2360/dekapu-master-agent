@@ -24,4 +24,7 @@
 
     // Extra
     public string? ExtraArgs { get; set; }
+
+    // Extension
+    public bool DirectLaunch { get; set; } = false;
 }
