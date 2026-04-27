@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Text.Json;
 
 public class TrayAppContext : ApplicationContext
@@ -81,19 +81,39 @@ public class TrayAppContext : ApplicationContext
 
     private void OnMessage(string message)
     {
-        var options =
-        JsonSerializer.Deserialize<LaunchOptions>(message, Json.Options);
-
-        if (options == null)
-            return;
-
-        Task.Run(() =>
+        LaunchOptions? options;
+        try
         {
-            if (options.DirectLaunch || _launcherService.Confirm(options))
+            options = JsonSerializer.Deserialize<LaunchOptions>(message, Json.Options);
+        }
+        catch (JsonException)
+        {
+            return;
+        }
+        if (options is null) return;
+
+        _ = Task.Run(() =>
+        {
+            try
             {
-                _launcherService.Launch(options);
+                bool confirmed = options.DirectLaunch || ConfirmOnUiThread(options);
+                if (confirmed)
+                {
+                    _launcherService.Launch(options);
+                }
+            }
+            catch
+            {
             }
         });
+    }
+
+    private bool ConfirmOnUiThread(LaunchOptions options)
+    {
+        if (!_statusForm.InvokeRequired)
+            return _launcherService.Confirm(options);
+
+        return _statusForm.Invoke(() => _launcherService.Confirm(options));
     }
 
     private void SendAgentInfo()
@@ -108,8 +128,14 @@ public class TrayAppContext : ApplicationContext
 
     protected override void Dispose(bool disposing)
     {
-        _ws.Stop();
-        _icon.Visible = false;
+        if (disposing)
+        {
+            _ws.Stop();
+            _icon.Visible = false;
+            _icon.ContextMenuStrip?.Dispose();
+            _icon.Dispose();
+            _statusForm.Dispose();
+        }
         base.Dispose(disposing);
     }
 }

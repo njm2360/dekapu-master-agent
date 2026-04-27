@@ -1,10 +1,15 @@
-﻿using System.Net.WebSockets;
+using System.Buffers;
+using System.Net.WebSockets;
 using System.Text;
 
 public sealed class WebSocketClient(string url)
 {
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(10);
+
     private readonly Uri _uri = new(url);
     private readonly CancellationTokenSource _cts = new();
+
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
 
     private ClientWebSocket? _ws;
 
@@ -22,18 +27,17 @@ public sealed class WebSocketClient(string url)
                 _ws = new ClientWebSocket();
 
                 StateChanged?.Invoke(ConnectionState.Connecting, null);
-                await _ws.ConnectAsync(_uri, _cts.Token);
+
+                using (var connectCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token))
+                {
+                    connectCts.CancelAfter(ConnectTimeout);
+                    await _ws.ConnectAsync(_uri, connectCts.Token);
+                }
 
                 retrySeconds = 1;
                 StateChanged?.Invoke(ConnectionState.Connected, null);
 
-                var buffer = new byte[4096];
-                while (_ws.State == WebSocketState.Open)
-                {
-                    var result = await _ws.ReceiveAsync(buffer, _cts.Token);
-                    var msg = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    MessageReceived?.Invoke(msg);
-                }
+                await ReceiveLoopAsync(_ws);
             }
             catch
             {
@@ -57,18 +61,59 @@ public sealed class WebSocketClient(string url)
         }
     }
 
+    private async Task ReceiveLoopAsync(ClientWebSocket ws)
+    {
+        while (ws.State == WebSocketState.Open)
+        {
+            var writer = new ArrayBufferWriter<byte>(initialCapacity: 4096);
+            ValueWebSocketReceiveResult result;
+            do
+            {
+                var memory = writer.GetMemory(sizeHint: 4096);
+                result = await ws.ReceiveAsync(memory, _cts.Token);
+                writer.Advance(result.Count);
+            } while (!result.EndOfMessage);
+
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                await ws.CloseAsync(
+                    WebSocketCloseStatus.NormalClosure,
+                    null,
+                    _cts.Token
+                );
+                return;
+            }
+
+            if (result.MessageType == WebSocketMessageType.Text)
+            {
+                var msg = Encoding.UTF8.GetString(writer.WrittenSpan);
+                MessageReceived?.Invoke(msg);
+            }
+        }
+    }
+
     public async Task SendAsync(string message)
     {
-        if (_ws == null || _ws.State != WebSocketState.Open)
+        var ws = _ws;
+        if (ws is null || ws.State != WebSocketState.Open)
             return;
 
         var bytes = Encoding.UTF8.GetBytes(message);
-        await _ws.SendAsync(
-        bytes,
-        WebSocketMessageType.Text,
-        true,
-        _cts.Token
-        );
+
+        await _sendLock.WaitAsync(_cts.Token);
+        try
+        {
+            await ws.SendAsync(
+            bytes,
+            WebSocketMessageType.Text,
+            true,
+            _cts.Token
+            );
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
     }
 
     public void Stop()

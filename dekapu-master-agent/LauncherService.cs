@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 
 public class LauncherService(string launcherPath)
 {
@@ -7,6 +7,7 @@ public class LauncherService(string launcherPath)
     public bool Confirm(LaunchOptions options)
     {
         var args = BuildArguments(options);
+        var argsText = string.Join(' ', args);
 
         string instanceText =
             options.Instance != null
@@ -22,7 +23,7 @@ public class LauncherService(string launcherPath)
             $"以下の内容で起動します。\n\n" +
             $"インスタンス: {instanceText}\n" +
             $"プロファイル: {profileText}\n" +
-            $"引数: {args}",
+            $"引数: {argsText}",
             "起動確認",
             MessageBoxButtons.OKCancel,
             MessageBoxIcon.Question
@@ -44,17 +45,21 @@ public class LauncherService(string launcherPath)
             return;
         }
 
-        var args = BuildArguments(options);
-
-        Process.Start(new ProcessStartInfo
+        var psi = new ProcessStartInfo
         {
             FileName = _launcherPath,
-            Arguments = args,
-            UseShellExecute = false
-        });
+            UseShellExecute = false,
+        };
+
+        foreach (var arg in BuildArguments(options))
+        {
+            psi.ArgumentList.Add(arg);
+        }
+
+        Process.Start(psi);
     }
 
-    private static string BuildArguments(LaunchOptions options)
+    private static List<string> BuildArguments(LaunchOptions options)
     {
         var args = new List<string>();
 
@@ -107,15 +112,20 @@ public class LauncherService(string launcherPath)
 
         // extra args
         if (!string.IsNullOrWhiteSpace(options.ExtraArgs))
-            args.Add(options.ExtraArgs);
+        {
+            var tokens = options.ExtraArgs.Split(
+                [' ', '\t'],
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+            );
+            args.AddRange(tokens);
+        }
 
-        return string.Join(' ', args);
+        return args;
     }
 
     private static string GetLaunchUrl(InstanceInfo instance)
     {
-        var url = $"vrchat://launch?id={instance.Id}&shortName={instance.SecureName}";
-        return url;
+        return $"vrchat://launch?id={instance.Id}&shortName={instance.SecureName}";
     }
 
     private bool IsLauncherRunning()

@@ -1,34 +1,58 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
+public record ClientMeta(
+    string? Description,
+    string HostName,
+    string IpAddress,
+    string MacAddress
+);
+
 public static class SystemInfo
 {
-    public static object GetReport(string? description)
+    public static ClientMeta GetReport(string? description)
     {
-        return new
-        {
-            description = description,
-            hostName = Dns.GetHostName(),
-            ipAddress = GetLocalIPv4(),
-            macAddress = GetMacAddress()
-        };
+        var nic = SelectPrimaryInterface();
+
+        var ip = nic.GetIPProperties().UnicastAddresses
+            .FirstOrDefault(a => a.Address.AddressFamily == AddressFamily.InterNetwork)
+            ?.Address.ToString()
+            ?? throw new InvalidOperationException(
+                "IPv4 address not found on primary NIC: " + nic.Description);
+
+        var mac = nic.GetPhysicalAddress().ToString();
+
+        return new ClientMeta(
+            Description: description,
+            HostName: Dns.GetHostName(),
+            IpAddress: ip,
+            MacAddress: mac
+        );
     }
 
-    private static string GetLocalIPv4()
-    {
-        return Dns.GetHostAddresses(Dns.GetHostName())
-            .First(x => x.AddressFamily == AddressFamily.InterNetwork)
-            .ToString();
-    }
-
-    private static string GetMacAddress()
+    private static NetworkInterface SelectPrimaryInterface()
     {
         return NetworkInterface.GetAllNetworkInterfaces()
-            .First(n =>
-                n.OperationalStatus == OperationalStatus.Up &&
-                n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-            .GetPhysicalAddress()
-            .ToString();
+            .Where(n => n.OperationalStatus == OperationalStatus.Up)
+            .Where(n => n.NetworkInterfaceType is NetworkInterfaceType.Ethernet
+                                                or NetworkInterfaceType.Wireless80211)
+            .Where(n => !IsVirtualAdapter(n))
+            .FirstOrDefault(n => n.GetIPProperties().UnicastAddresses
+                .Any(a => a.Address.AddressFamily == AddressFamily.InterNetwork))
+            ?? throw new InvalidOperationException(
+                "No active physical network interface with IPv4 found");
+    }
+
+    private static bool IsVirtualAdapter(NetworkInterface nic)
+    {
+        var d = nic.Description;
+        return d.Contains("Virtual", StringComparison.OrdinalIgnoreCase)
+            || d.Contains("Hyper-V", StringComparison.OrdinalIgnoreCase)
+            || d.Contains("VMware", StringComparison.OrdinalIgnoreCase)
+            || d.Contains("VirtualBox", StringComparison.OrdinalIgnoreCase)
+            || d.Contains("WSL", StringComparison.OrdinalIgnoreCase)
+            || d.Contains("Tunneling", StringComparison.OrdinalIgnoreCase)
+            || d.Contains("Loopback", StringComparison.OrdinalIgnoreCase);
     }
 }

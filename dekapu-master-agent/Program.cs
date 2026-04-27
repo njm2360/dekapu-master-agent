@@ -2,8 +2,6 @@ namespace dekapu_master_agent
 {
     internal static class Program
     {
-        private static Mutex? _mutex;
-
         /// <summary>
         ///  The main entry point for the application.
         /// </summary>
@@ -12,7 +10,7 @@ namespace dekapu_master_agent
         {
             const string mutexName = "dekapu_master_agent_single_instance";
 
-            _mutex = new Mutex(true, mutexName, out bool createdNew);
+            using var mutex = new Mutex(true, mutexName, out bool createdNew);
 
             if (!createdNew)
             {
@@ -25,12 +23,17 @@ namespace dekapu_master_agent
                 return;
             }
 
-            ApplicationConfiguration.Initialize();
+            try
+            {
+                ApplicationConfiguration.Initialize();
 
-            var config = AppConfig.Load("config.json");
-            Application.Run(new TrayAppContext(config));
-
-            _mutex.ReleaseMutex();
+                var config = AppConfig.Load("config.json");
+                Application.Run(new TrayAppContext(config));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
         }
     }
 }
