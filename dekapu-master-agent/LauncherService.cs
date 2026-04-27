@@ -114,7 +114,8 @@ public class LauncherService(string launcherPath)
 
     private static string GetLaunchUrl(InstanceInfo instance)
     {
-        return $"vrchat://launch?id={instance.Id}";
+        var url = $"vrchat://launch?id={instance.Id}&shortName={instance.SecureName}";
+        return url;
     }
 
     private bool IsLauncherRunning()
