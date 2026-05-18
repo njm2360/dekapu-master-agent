@@ -2,19 +2,18 @@ using System.Buffers;
 using System.Net.WebSockets;
 using System.Text;
 
-public sealed class WebSocketClient(string url)
+public sealed class WebSocketClient(string url) : IDisposable
 {
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(10);
 
     private readonly Uri _uri = new(url);
     private readonly CancellationTokenSource _cts = new();
-
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
     private ClientWebSocket? _ws;
 
     public event Action<string>? MessageReceived;
-    public event Action<ConnectionState, int?>? StateChanged;
+    public event Action<ConnectionStateChange>? StateChanged;
 
     public async Task StartAsync()
     {
@@ -26,7 +25,7 @@ public sealed class WebSocketClient(string url)
             {
                 _ws = new ClientWebSocket();
 
-                StateChanged?.Invoke(ConnectionState.Connecting, null);
+                StateChanged?.Invoke(new ConnectionStateChange(ConnectionState.Connecting, null));
 
                 using (var connectCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token))
                 {
@@ -35,21 +34,24 @@ public sealed class WebSocketClient(string url)
                 }
 
                 retrySeconds = 1;
-                StateChanged?.Invoke(ConnectionState.Connected, null);
+                StateChanged?.Invoke(new ConnectionStateChange(ConnectionState.Connected, null));
 
                 await ReceiveLoopAsync(_ws);
             }
             catch
             {
-                StateChanged?.Invoke(
-                ConnectionState.Reconnecting,
-                retrySeconds
-                );
+                if (_cts.IsCancellationRequested) break;
 
-                await Task.Delay(
-                TimeSpan.FromSeconds(retrySeconds),
-                _cts.Token
-                );
+                StateChanged?.Invoke(new ConnectionStateChange(ConnectionState.Reconnecting, retrySeconds));
+
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(retrySeconds), _cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
 
                 retrySeconds = Math.Min(retrySeconds * 2, 60);
             }
@@ -104,10 +106,10 @@ public sealed class WebSocketClient(string url)
         try
         {
             await ws.SendAsync(
-            bytes,
-            WebSocketMessageType.Text,
-            true,
-            _cts.Token
+                bytes,
+                WebSocketMessageType.Text,
+                true,
+                _cts.Token
             );
         }
         finally
@@ -116,8 +118,18 @@ public sealed class WebSocketClient(string url)
         }
     }
 
-    public void Stop()
+    public void Dispose()
     {
-        _cts.Cancel();
+        try
+        {
+            _cts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        _ws?.Dispose();
+        _cts.Dispose();
+        _sendLock.Dispose();
     }
 }

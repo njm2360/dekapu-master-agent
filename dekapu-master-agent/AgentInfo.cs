@@ -2,16 +2,14 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
-public record ClientMeta(
+public record AgentInfo(
     string? Description,
     string HostName,
     string IpAddress,
     string MacAddress
-);
-
-public static class SystemInfo
+)
 {
-    public static ClientMeta GetReport(string? description)
+    public static AgentInfo Collect(string? description)
     {
         var nic = SelectPrimaryInterface();
 
@@ -23,7 +21,7 @@ public static class SystemInfo
 
         var mac = nic.GetPhysicalAddress().ToString();
 
-        return new ClientMeta(
+        return new AgentInfo(
             Description: description,
             HostName: Dns.GetHostName(),
             IpAddress: ip,

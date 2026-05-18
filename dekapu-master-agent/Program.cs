@@ -27,7 +27,7 @@ namespace dekapu_master_agent
             {
                 ApplicationConfiguration.Initialize();
 
-                var config = AppConfig.Load("config.json");
+                var config = ConfigLoader.Load("config.json");
                 Application.Run(new TrayAppContext(config));
             }
             finally
